@@ -1,0 +1,214 @@
+ # -*- coding: utf-8 -*-
+"""
+Created on Fri Aug 13 16:12:23 2021
+
+@author:Neelesh Pandya
+"""
+
+#PROJECT TITLE - INTERVIEW PERFORMANCE ESTIMATOR
+
+
+#PROJECT OVERVIEW
+
+#THIS IS A PART 2 OF PROJECT WHERE WE GET INTERVIEWER QUESTION AND 
+#APPLICANT ANSWER IN TEXT FORMAT AFTER COVERTING VIDEO TO AUDIO AND THEN AUDIO TO TEXT
+#AND THEN WE TAKE THE INTERVIEWER QUESTION IN TEXT FORMAT AND GENERATE AN MODEL ANSWER 
+#THEN WE CHECK THE SIMILARITY TO FIND SCORE THAT HOW MUCH IS APPLICANT ANSWER SIMILAR TO 
+#MODEL ANSWER
+
+
+#PREFERABLE TO RUN ON GOOGLE COLAB
+
+# from pymongo import MongoClient
+
+
+# #STORING CORPUS IN MONGODB(Its for seeing how the data is stored)
+#you can uncomment it and run it accordingly
+
+
+# client = MongoClient()
+# db = client.test_database  # use a database called "test_database"
+# collection = db.corpus   # and inside that DB, a collection called "files"
+
+# text = open('D:/360digit/first11.txt',encoding="utf-8").read()
+
+# # build a document to be inserted
+# text_file_doc = {"first11": "test.txt", "contents" : text }
+# # insert the contents into the "file" collection
+# collection.insert(text_file_doc)
+
+
+# #STORING QUESTION IN MONGODB
+
+# db = client.test_database  # use a database called "test_database"
+# collection = db.question   # and inside that DB, a collection called "files"
+
+# text = open('D:/360digit/question.txt',encoding="utf-8").read()
+
+# # build a document to be inserted
+# text_file_doc = {"question": "question.txt", "contents" : text }
+# # insert the contents into the "file" collection
+# collection.insert(text_file_doc)
+
+
+# #STORING APPLICANT ANSWER IN MONGODB
+# db = client.test_database  # use a database called "test_database"
+# collection = db.applicant   # and inside that DB, a collection called "files"
+
+# text = open('D:/360digit/applicant.txt',encoding="utf-8").read()
+
+# # build a document to be inserted
+# text_file_doc = {"applicant": "applicant.txt", "contents" : text }
+# # insert the contents into the "file" collection
+# collection.insert(text_file_doc)
+
+
+#EXTRACTING THE CORPUS FROM MONGO DB
+
+import pymongo
+ 
+ 
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+ 
+# Database Name
+db = client["test_database"]
+ 
+# Collection Name
+col = db["corpus"]
+ 
+x = col.find()
+ 
+for string in x:
+    print(string)
+    
+string=string['contents']
+
+#EXTRACTING THE INTERVIEWER QUESTION FROM MONGO DB
+
+import pymongo
+ 
+ 
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+ 
+# Database Name
+db = client["test_database"]
+ 
+# Collection Name
+col = db["question"]
+ 
+y = col.find()
+ 
+for question in y:
+    print(question)
+    
+interviewer_question=question['contents']
+interviewer_question=interviewer_question.split(',')
+
+#EXTRACTING THE APPLICANT ANSWER FROM MONGO DB
+
+import pymongo
+ 
+ 
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+ 
+# Database Name
+db = client["test_database"]
+ 
+# Collection Name
+col = db["applicant"]
+ 
+z = col.find()
+ 
+for answer in z:
+    print(answer)
+    
+applicant_answer=answer['contents']
+applicant_answer=applicant_answer.split(',')
+
+#INSTALL THE DEPENDENCIES LIKE PYTORCH 
+
+#conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+#pip install transformers
+
+
+# TEXT PREPROCESSING
+
+import re
+context = re.sub('[^a-zA-Z0-9\n\.]', ' ', string)
+context = re.sub('  ', ' ', string)
+context=re.sub(' +', ' ', context)
+context=re.sub('\s+',' ',context)
+
+
+#BUILDING A MODEL
+
+#AUTOTOKENIZER FOR TRANSFORMING TO BERT TOKENS
+
+#AUTOMODELFORQUESTIONANSWERING FOR DOWNLOADING THE MODE
+
+import pandas as pd
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering
+modelname = 'deepset/xlm-roberta-large-squad2'
+model =AutoModelForQuestionAnswering.from_pretrained(modelname)
+
+# TRANSFORM INTO BERT TOKEN (CLS,SEP,PAD,UNK)
+
+tokenizer = AutoTokenizer.from_pretrained(modelname)
+
+from transformers import pipeline
+nlp = pipeline('question-answering', model=model, tokenizer=tokenizer)
+
+
+#GIVING QUESTION AND OUR CORPUS TO THE NLP PIPLINE SO THAT THE MODEL CAN ANSWER QUESTION
+
+model_answer=[]
+question=[]
+for questions in interviewer_question:
+    ans=nlp({'question':questions,'context': context})
+    start=ans['start']
+    end=ans['end']
+    answer=context[start:end+400] #increasing the length of the answer accordingly because model answers it in a summarized form
+    model_answers=answer
+    model_answers = model_answers.split('.') #restricting the answer when the sentence end 
+    model_answers = model_answers[0]#Taking the best answerfrom the model
+    model_answer.append(model_answers)
+    question.append(questions)
+    
+    
+
+    
+#SENTENCE EMBEDDING THIS EMBEDDING SHOWS HOW CLOSE ONE WORD IS TO OTHER BY DOING SOME SCALAR 
+#PRODUCT OF THERE VECTOR EVERY WORD IS CONVERTED INTO SOMEKIND OF VECTOR REPRESENTATION .
+#CHECKING SIMILARITY BY COSINE SIMILARITY
+
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+model = SentenceTransformer('paraphrase-distilroberta-base-v2')
+num=int(input('Number of Interviewer questions:'))
+result=[]
+score=[]
+for i in range(num):
+    sentences=[model_answer[i],applicant_answer[i]]
+    sentence_embeddings = model.encode(sentences)
+    scores=cosine_similarity([sentence_embeddings[0]],sentence_embeddings[1:])*100
+    if scores>35:
+        results='correct answer'
+    else:
+        results='incorrect answer'
+    result.append(results)
+    score.append(scores)
+
+data = {"question":pd.Series([question[0], question[1], question[2], question[3],question[4]]), "model_answer":pd.Series([model_answer[0], model_answer[1], model_answer[2], model_answer[3], model_answer[4]]),"applicant_answer":pd.Series([applicant_answer[0], applicant_answer[1], applicant_answer[2], applicant_answer[3], applicant_answer[4]]),"score":pd.Series([score[0],score[1],score[2],score[3],score[4]]),"Status":pd.Series([result[0],result[1],result[2],result[3],result[4]])}
+result=pd.DataFrame(data)
+
+#Average score to calculate the status
+
+scored=result['score'].mean()
+scored=scored[0,0]
+if scored>35:
+    status='cleared the interview'
+else:
+    status='not cleared the interview'
+
+print("score:",scored,'%')
+print('status:',status)
